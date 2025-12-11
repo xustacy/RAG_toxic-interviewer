@@ -1,0 +1,10 @@
+# Core dependencies for RAG Toxic Interviewer
+gradio>=4.0.0
+langchain>=0.1.0
+openai>=1.0.0
+tiktoken>=0.5.0
+faiss-cpu>=1.7.4
+python-dotenv>=1.0.0
+
+# Optional: For GPU support, replace faiss-cpu with:
+# faiss-gpu>=1.7.4
