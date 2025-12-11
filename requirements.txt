@@ -1,0 +1,12 @@
+streamlit
+langchain
+langchain-community
+langchain-huggingface
+langchain-openai
+faiss-cpu
+transformers
+sentence-transformers
+huggingface_hub
+pypdf
+aisuite
+groq
