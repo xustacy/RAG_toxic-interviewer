@@ -1,14 +1,17 @@
 streamlit
 gdown
-langchain
-langchain-community
-langchain-core
-langchain-huggingface
-langchain-openai
-langchain-google-genai
+# === 核心套件 (鎖定 0.2.x 穩定版) ===
+langchain==0.2.16
+langchain-community==0.2.16
+langchain-core==0.2.38
+langchain-text-splitters==0.2.4
+# === 整合套件 ===
+langchain-huggingface==0.0.3
+langchain-openai==0.1.23
+langchain-google-genai==1.0.10
+# === 其他 ===
 faiss-cpu
 transformers
 sentence-transformers
 huggingface-hub
 groq
-aisuite
