@@ -147,109 +147,205 @@ qa_chain = (
 tab1, tab2 = st.tabs(["💬 線上保險諮詢", "📋 智能保險推薦"])
 
 with tab1:
-    st.subheader("💡 智慧保險顧問")
+    st.subheader("💬 深度保險諮詢 (資深理賠專員版)")
     
+    # 初始化 session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
-
+    
+    # 顯示歷史訊息
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if prompt := st.chat_input("請輸入您的問題 (例如：日本旅遊險推薦)..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    # 使用者輸入
+    if user_input := st.chat_input("請輸入您的問題 (例如：癌症險的等待期是多久？)..."):
+        # 1. 顯示使用者的問題
+        st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
-            st.markdown(prompt)
+            st.markdown(user_input)
 
         with st.chat_message("assistant"):
-            with st.spinner("🔍 AI 正在翻閱條款並進行推理..."):
+            with st.spinner("🧠 正在調閱條款並進行深度分析..."):
                 try:
-                    # Debug: 顯示抓到的資料
-                    retrieved_docs = retriever.invoke(prompt)
+                    # ==========================================
+                    # 🔥 關鍵技術 1：對話歷史重組 (Contextualization)
+                    # ==========================================
+                    # 這是為了解決「它不知道你在問上一題」的問題
+                    # 我們把「前一題的問答」跟「這一題」結合，變成一個完整的搜尋句
                     
-                    with st.expander("🕵️ [工程師模式] 點擊查看 AI 讀到了哪些資料"):
+                    history_context = ""
+                    if len(st.session_state.messages) > 2:
+                        last_q = st.session_state.messages[-3]["content"]
+                        last_a = st.session_state.messages[-2]["content"]
+                        history_context = f"前一輪對話背景：(問){last_q} -> (答){last_a}。"
+                    
+                    # 組合出「增強版搜尋語句」
+                    search_query = f"{history_context} 使用者現在的問題：{user_input}。請尋找相關條款。"
+
+                    # ==========================================
+                    # 🔥 關鍵技術 2：擴大檢索與 Debug
+                    # ==========================================
+                    # Tab 1 需要更廣泛的搜尋 (k=10) 才能回答深入問題
+                    retriever_deep = vectorstore.as_retriever(search_kwargs={"k": 10})
+                    retrieved_docs = retriever_deep.invoke(search_query)
+
+                    with st.expander("🕵️ [理賠視角] AI 參考的條款細節"):
                         if not retrieved_docs:
-                            st.warning("⚠️ 系統沒有抓到任何資料。")
+                            st.warning("⚠️ 查無相關條款，請嘗試更具體的關鍵字。")
                         for i, doc in enumerate(retrieved_docs):
-                            source = doc.metadata.get('source', doc.metadata.get('filename', '未知來源'))
-                            st.markdown(f"**📄 參考文件 {i+1} ({source})**")
-                            st.caption(doc.page_content[:300] + "...") 
+                            source = doc.metadata.get('source', '未知')
+                            st.markdown(f"**📄 條款 {i+1} ({source})**")
+                            st.caption(doc.page_content[:200] + "...")
                             st.divider()
 
-                    # 產生回答
-                    response = qa_chain.invoke(prompt)
+                    # ==========================================
+                    # 🔥 關鍵技術 3：深度推論 Prompt (Chain of Thought)
+                    # ==========================================
+                    deep_persona = """
+                    你是具備 20 年經驗的「資深保險理賠專員」。你的工作不是只有讀條款，而是要幫客戶「解釋條款背後的邏輯」與「理賠實務」。
+
+                    【已知條款資訊】：
+                    {context}
+
+                    【對話歷史】：
+                    {history}
+
+                    【當前問題】：
+                    {question}
+
+                    【回答策略】：
+                    1. **定義解釋**：不要只說結果，要解釋專有名詞 (例如：什麼是「既往症」？什麼是「門診手術」？)。
+                    2. **條款引用**：回答時，請務必提到「根據條款第 X 條...」或是「依據條款說明...」。
+                    3. **除外責任**：資深專員會主動告知風險。請在回答最後，補充「什麼情況下**不**會理賠」(Exclusions)。
+                    4. **舉例說明**：如果是複雜概念，請舉一個簡單的例子 (例如：小明發生了...)。
+                    5. **誠實原則**：如果資料庫裡完全沒有這家公司的條款，請直接說「資料庫無此商品資訊」，不要瞎掰。
+
+                    請用台灣繁體中文，以專業、詳盡且有溫度的口吻回答：
+                    """
+
+                    deep_prompt = ChatPromptTemplate.from_messages([
+                        ("human", deep_persona)
+                    ])
+
+                    # 建立 Chain
+                    chain = (
+                        {
+                            "context": lambda x: format_docs(retrieved_docs),
+                            "history": lambda x: history_context,
+                            "question": lambda x: user_input
+                        }
+                        | deep_prompt
+                        | llm
+                        | StrOutputParser()
+                    )
+
+                    # 生成回答
+                    response = chain.invoke(user_input)
                     st.markdown(response)
+                    
+                    # 存入紀錄
                     st.session_state.messages.append({"role": "assistant", "content": response})
+
                 except Exception as e:
                     st.error(f"發生錯誤：{e}")
 
 with tab2:
-    st.subheader("📋 為您量身打造的保險規劃")
+    st.subheader("📋 全方位智能保險規劃書")
+    
+    # --- 1. KYC (Know Your Customer) 更完整的資料蒐集 ---
     with st.container(border=True):
+        st.markdown("#### 👤 第一步：建立您的風險檔案")
         col1, col2 = st.columns(2)
         with col1:
             gender = st.selectbox("性別", ["男", "女"])
-            age = st.number_input("年齡", 25, 100, 30)
-            job = st.text_input("職業 (影響風險等級)", "工程師") # 提示使用者這很重要
+            age = st.number_input("實歲年齡", 0, 100, 30)
+            job = st.text_input("職業 (影響費率關鍵)", "軟體工程師", help="請盡量詳細，例如：內勤行政、外送員、建築工人")
         with col2:
-            salary = st.selectbox("年收", ["50萬以下", "50-100萬", "100-200萬", "200萬以上"])
-            budget = st.text_input("預算 (例如：年繳2萬)", "月繳 3000")
+            salary = st.selectbox("年收入", ["50萬以下", "50-100萬", "100-200萬", "200萬以上", "不便透露"])
+            # 新增：家庭狀況 (這是經理人最在意的點！)
+            family_status = st.selectbox("家庭責任", ["單身未婚", "已婚無子", "已婚有子 (小孩幼齡)", "已婚有子 (小孩已獨立)", "單親家庭"])
         
-        ins_type = st.selectbox("險種", ["醫療險", "意外險", "儲蓄險", "旅遊險", "長照險", "壽險"])
-        
+        st.markdown("#### 🛡️ 第二步：您的保險需求")
+        col3, col4 = st.columns(2)
+        with col3:
+            ins_type = st.selectbox("想規劃的險種", ["醫療險 (實支實付/日額)", "意外險 (傷害保險)", "重大傷病/癌症險", "壽險 (定期/終身)", "儲蓄/理財險", "旅遊平安險"])
+        with col4:
+            budget = st.text_input("預算範圍", "例如：月繳 3,000 元 或 年繳 4 萬元")
+
+        # 特殊欄位：旅遊險
         extra_info = ""
-        if ins_type == "旅遊險":
-            dest = st.text_input("國家 (例如：日本)", "日本")
-            days = st.number_input("天數", 1, 365, 5)
+        if "旅遊" in ins_type:
+            dest = st.text_input("旅遊國家", "日本")
+            days = st.number_input("旅遊天數", 1, 365, 5)
             extra_info = f"預計前往{dest}旅遊{days}天"
 
-        if st.button("開始 AI 深度分析"):
-            with st.spinner("🧠 AI 正在計算職業等級、分析條款並進行跨公司比對..."):
-                # ==========================================
-                # 🔥 核心修改：升級版 Prompt (加入商業邏輯)
-                # ==========================================
-                query = f"""
-                【使用者畫像】：
-                - 性別：{gender}
-                - 年齡：{age} 歲 (請注意此年齡層的投保限制與保費趨勢)
-                - 職業：{job} (請先判斷此職業的保險風險等級，如內勤為第1類，外勤或體力勞動可能為第2-6類)
-                - 經濟狀況：年收 {salary}，預算 {budget}
-                - 目標險種：{ins_type}
-                - 補充條件：{extra_info}
+        # 經理人建議：增加「既有保單」的詢問，避免重複投保
+        has_insurance = st.checkbox("我已有類似保險 (希望 AI 協助檢視缺口或加強保障)")
+        extra_info += "。已有類似保單，請著重在補強缺口。" if has_insurance else "。目前無此類保單，屬於新投保。"
 
-                【任務要求】：
-                1. **風險評估**：首先分析使用者的「職業風險等級」與「年齡需求」。(例如：意外險需特別關注職業等級；醫療險需關注年齡費率)。
-                2. **多元搜尋**：請從資料庫中檢索條款，**務必嘗試尋找「2家不同保險公司」**的類似商品(若資料庫有)。
-                3. **推薦方案**：推薦 2 個具體的保險商品。
-                4. **比較分析**：針對這兩個商品進行優缺點比較 (例如：A商品保費低但額度少，B商品保障範圍廣但較貴)。
+    # --- 2. 開始分析 ---
+    if st.button("🚀 生成專業建議書", type="primary"): # 用 primary 色系強調按鈕
+        with st.spinner("🤖 AI 顧問正在進行交叉比對與條款分析..."):
+            # ==========================================
+            # 🔥 經理人級 Prompt：要求結構化輸出與表格
+            # ==========================================
+            query = f"""
+            【客戶畫像 (KYC)】：
+            - 基本資料：{gender}, {age}歲
+            - 職業風險：{job} (請精準判斷職業等級 1-6 級)
+            - 經濟能力：年收{salary}, 預算{budget}
+            - 家庭責任：{family_status} (🔥請重點分析此身份的風險缺口，例如有小孩需高壽險/意外險槓桿)
+            - 需求目標：{ins_type}
+            - 備註：{extra_info}
 
-                【輸出格式範例】：
-                ### 🧑‍💼 使用者需求分析
-                (在此說明職業風險與年齡建議...)
+            【任務指令】：
+            你是資深的保險經紀人，請根據資料庫檢索結果，產出一份專業建議書。
+            
+            1. **風險缺口分析**：根據「家庭責任」與「職業」，一針見血地點出客戶最該擔心的風險是什麼？
+            2. **精選雙商品比較**：請務必從資料庫找出 2 家不同保險公司的商品 (商品A vs 商品B)。
+            3. **表格化輸出**：請務必使用 Markdown Table 格式製作比較表。
+            
+            【建議書輸出格式】：
+            ### 📊 第一部分：您的風險雷達圖
+            (用文字描述該客戶目前的風險屬性，例如：家庭支柱、意外高風險群...)
 
-                ### 🏆 推薦商品 1：[公司名稱] - [商品名稱]
-                * 特色：...
-                * 適合原因：...
+            ### 🏆 第二部分：精選方案推薦
+            我為您篩選了以下兩個最佳方案：
 
-                ### 🥈 推薦商品 2：[公司名稱] - [商品名稱]
-                * 特色：...
-                * 適合原因：...
+            #### 方案 A：[保險公司] - [商品名稱]
+            * **核心優勢**：(一句話亮點)
+            * **適合您的原因**：...
 
-                ### ⚖️ 綜合比較
-                (表格或文字比較...)
-                """
-                
-                # 1. 執行檢索 (保留 Debug 模式，讓您確認它有沒有抓到不同公司的資料)
-                retrieved_docs = retriever.invoke(query)
-                with st.expander("🕵️ [工程師模式] AI 檢索到的條款內容"):
-                    for i, doc in enumerate(retrieved_docs):
-                        # 顯示來源，確認是否有抓到不同公司
-                        source = doc.metadata.get('source', doc.metadata.get('filename', '未知'))
-                        company = doc.metadata.get('company', '未知公司') # 假設我們 metadata 有存公司
-                        st.markdown(f"**📄 來源 {i+1} ({company}): {source}**")
-                        st.caption(doc.page_content[:300] + "...")
-                        st.divider()
+            #### 方案 B：[保險公司] - [商品名稱]
+            * **核心優勢**：(一句話亮點)
+            * **適合您的原因**：...
 
-                # 2. 生成回答
-                response = qa_chain.invoke(query)
-                st.markdown(response)
+            ### ⚖️ 第三部分：超級比一比 (Comparison Table)
+            | 比較項目 | 方案 A | 方案 B |
+            | :--- | :--- | :--- |
+            | 保險公司 | ... | ... |
+            | 商品特色 | ... | ... |
+            | 承保範圍 | ... | ... |
+            | 預估保費 | ... | ... |
+            | 推薦指數 | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+
+            ### 💡 經理人總結
+            (給客戶的最終中肯建議)
+            """
+            
+            # Debug 區塊 (保留給您自己看)
+            retrieved_docs = retriever.invoke(query)
+            with st.expander("🕵️ [工程師模式] 查看 AI 引用了哪些條款"):
+                for i, doc in enumerate(retrieved_docs):
+                    source = doc.metadata.get('source', doc.metadata.get('filename', '未知'))
+                    company = doc.metadata.get('company', '未知公司')
+                    st.markdown(f"**{i+1}. {company} - {source}**")
+                    st.caption(doc.page_content[:200] + "...")
+
+            # 生成回答
+            response = qa_chain.invoke(query)
+            st.markdown(response)
+
+            # --- 3. 專業結尾 (免責聲明) ---
+            st.info("💡 **經理人小叮嚀**：\n本建議書由 AI 系統依據現有條款資料庫生成，僅供初步規劃參考。實際承保內容、費率與理賠條件，請務必以保險公司正式保單條款為準。建議您投保前諮詢真人業務員進行最終確認。")
