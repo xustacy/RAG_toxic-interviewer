@@ -190,10 +190,10 @@ with tab2:
         with col1:
             gender = st.selectbox("性別", ["男", "女"])
             age = st.number_input("年齡", 25, 100, 30)
-            job = st.text_input("職業", "工程師")
+            job = st.text_input("職業 (影響風險等級)", "工程師") # 提示使用者這很重要
         with col2:
             salary = st.selectbox("年收", ["50萬以下", "50-100萬", "100-200萬", "200萬以上"])
-            budget = st.text_input("預算", "月繳 3000")
+            budget = st.text_input("預算 (例如：年繳2萬)", "月繳 3000")
         
         ins_type = st.selectbox("險種", ["醫療險", "意外險", "儲蓄險", "旅遊險", "長照險", "壽險"])
         
@@ -203,24 +203,53 @@ with tab2:
             days = st.number_input("天數", 1, 365, 5)
             extra_info = f"預計前往{dest}旅遊{days}天"
 
-        if st.button("開始 AI 分析"):
-            with st.spinner("🤖 AI 正在綜合評估..."):
+        if st.button("開始 AI 深度分析"):
+            with st.spinner("🧠 AI 正在計算職業等級、分析條款並進行跨公司比對..."):
+                # ==========================================
+                # 🔥 核心修改：升級版 Prompt (加入商業邏輯)
+                # ==========================================
                 query = f"""
-                使用者背景：{gender}, {age}歲, 職業{job}, 年收{salary}, 預算{budget}。
-                需求：想找{ins_type}。{extra_info}。
-                
-                任務：
-                1. 請搜尋資料庫中適合的{ins_type}商品。
-                2. 若目的地是國外(如日本)，請優先尋找海外相關保障。
-                3. 請推薦 1-2 個具體商品，並說明推薦原因。
+                【使用者畫像】：
+                - 性別：{gender}
+                - 年齡：{age} 歲 (請注意此年齡層的投保限制與保費趨勢)
+                - 職業：{job} (請先判斷此職業的保險風險等級，如內勤為第1類，外勤或體力勞動可能為第2-6類)
+                - 經濟狀況：年收 {salary}，預算 {budget}
+                - 目標險種：{ins_type}
+                - 補充條件：{extra_info}
+
+                【任務要求】：
+                1. **風險評估**：首先分析使用者的「職業風險等級」與「年齡需求」。(例如：意外險需特別關注職業等級；醫療險需關注年齡費率)。
+                2. **多元搜尋**：請從資料庫中檢索條款，**務必嘗試尋找「2家不同保險公司」**的類似商品(若資料庫有)。
+                3. **推薦方案**：推薦 2 個具體的保險商品。
+                4. **比較分析**：針對這兩個商品進行優缺點比較 (例如：A商品保費低但額度少，B商品保障範圍廣但較貴)。
+
+                【輸出格式範例】：
+                ### 🧑‍💼 使用者需求分析
+                (在此說明職業風險與年齡建議...)
+
+                ### 🏆 推薦商品 1：[公司名稱] - [商品名稱]
+                * 特色：...
+                * 適合原因：...
+
+                ### 🥈 推薦商品 2：[公司名稱] - [商品名稱]
+                * 特色：...
+                * 適合原因：...
+
+                ### ⚖️ 綜合比較
+                (表格或文字比較...)
                 """
                 
+                # 1. 執行檢索 (保留 Debug 模式，讓您確認它有沒有抓到不同公司的資料)
                 retrieved_docs = retriever.invoke(query)
                 with st.expander("🕵️ [工程師模式] AI 檢索到的條款內容"):
                     for i, doc in enumerate(retrieved_docs):
-                        st.markdown(f"**📄 來源 {i+1}**")
+                        # 顯示來源，確認是否有抓到不同公司
+                        source = doc.metadata.get('source', doc.metadata.get('filename', '未知'))
+                        company = doc.metadata.get('company', '未知公司') # 假設我們 metadata 有存公司
+                        st.markdown(f"**📄 來源 {i+1} ({company}): {source}**")
                         st.caption(doc.page_content[:300] + "...")
                         st.divider()
 
+                # 2. 生成回答
                 response = qa_chain.invoke(query)
                 st.markdown(response)
