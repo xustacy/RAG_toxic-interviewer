@@ -1,5 +1,6 @@
 # 🛡️ 專業保險諮詢與推薦系統 (Insurance RAG Agent)
 
+## 🚩 部署網址：https://raginsurancebroker-2qvj3p9ccqxwksambxxvyp.streamlit.app/
 這是 **RAG** 技術的智能保險諮詢系統。它結合了 **Streamlit** 的互動介面、 **FAISS** 向量資料庫以及使用 **Groq (LLM)**，能夠根據內部的保險條款文件，提供精確的問答與商品推薦。
 
 ## ✨ 主要功能
