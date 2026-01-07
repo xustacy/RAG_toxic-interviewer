@@ -93,14 +93,14 @@ else:
     st.toast("✅ 資料庫載入成功！", icon="🧠")
 
 # 設定檢索器 (k=8 擴大搜尋範圍)
-retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
 
 # ==========================================
 # 5. 設定 LLM
 # ==========================================
 llm = ChatGroq(
     api_key=api_key,
-    model="llama-3.3-70b-versatile", 
+    model="llama-3.1-8b-instant",
     temperature=0.3,
 )
 
