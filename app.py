@@ -147,87 +147,104 @@ qa_chain = (
 tab1, tab2 = st.tabs(["💬 線上保險諮詢", "📋 智能保險推薦"])
 
 with tab1:
-    st.subheader("💬 深度保險諮詢 (V13.0 自然對話修復版)")
+    st.subheader("💬 深度保險諮詢 (資深理賠專員版)")
     
+    # 初始化 session state
     if "messages" not in st.session_state:
         st.session_state.messages = []
     
+    # 顯示歷史訊息
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if user_input := st.chat_input("請輸入您的問題 (例如：什麼是變額壽險？)..."):
-        
+    # 使用者輸入
+    if user_input := st.chat_input("請輸入您的問題 (例如：癌症險的等待期是多久？)..."):
+        # 1. 顯示使用者的問題
         st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
         with st.chat_message("assistant"):
-            with st.spinner("🧠 顧問正在思考中..."):
+            with st.spinner("🧠 正在調閱條款並進行深度分析..."):
                 try:
-                    # --- 1. 對話重寫 (保留好用的功能) ---
-                    search_query = user_input
-                    history_context = ""
-                    if len(st.session_state.messages) > 1:
-                        # 簡化：只取最近 2 句，避免干擾太大
-                        recent_history = st.session_state.messages[-3:-1] 
-                        history_text = "\n".join([f"{m['role']}: {m['content']}" for m in recent_history])
-                        
-                        # 這裡不需改動，維持原樣
-                        llm_rewriter = ChatGroq(api_key=api_key, model="llama-3.1-8b-instant", temperature=0.1)
-                        rewrite_prompt = f"請根據對話歷史將『{user_input}』改寫為搜尋關鍵字。若無關聯則維持原句。只輸出句子。"
-                        search_query = llm_rewriter.invoke(rewrite_prompt).content
-
-                    # --- 2. 檢索 (維持 V12 的廣度) ---
-                    retriever_expert = vectorstore.as_retriever(
-                        search_type="mmr", 
-                        search_kwargs={"k": 8, "fetch_k": 1000, "lambda_mult": 0.5}
-                    )
-                    retrieved_docs = retriever_expert.invoke(search_query)
-
-                    # Debug 視窗 (一樣留著給您檢查，但不會影響對話)
-                    with st.expander(f"🕵️ [後台數據] 搜尋：{search_query}"):
-                        if not retrieved_docs:
-                            st.info("⚠️ 資料庫未命中，將啟動通用知識庫回答。")
-                        for i, doc in enumerate(retrieved_docs):
-                            st.caption(f"📄 {doc.metadata.get('company', '')} - {doc.page_content[:100]}...")
-
                     # ==========================================
-                    # 🔥 修正重點：自然對話 Prompt (Humanized)
+                    # 🔥 關鍵技術 1：對話歷史重組 (Contextualization)
                     # ==========================================
-                    llm_advisor = ChatGroq(api_key=api_key, model="llama-3.1-8b-instant", temperature=0.3) #稍微回溫一點點讓它自然
-
-                    # 我們改用 ChatPromptTemplate.from_messages 來明確區分「系統指令」與「使用者問題」
-                    # 這能有效防止 Prompt Leaking (把指令印出來)
+                    # 這是為了解決「它不知道你在問上一題」的問題
+                    # 我們把「前一題的問答」跟「這一題」結合，變成一個完整的搜尋句
                     
-                    system_template = """
-                    你是一位親切、專業且資深的台灣保險顧問。請用「口語化」的方式回答客戶，不要像機器人一樣列點。
+                    history_context = ""
+                    if len(st.session_state.messages) > 2:
+                        last_q = st.session_state.messages[-3]["content"]
+                        last_a = st.session_state.messages[-2]["content"]
+                        history_context = f"前一輪對話背景：(問){last_q} -> (答){last_a}。"
+                    
+                    # 組合出「增強版搜尋語句」
+                    search_query = f"{history_context} 使用者現在的問題：{user_input}。請尋找相關條款。"
 
-                    【回答邏輯】：
-                    1. **先看資料庫**：優先依據下方的【已知條款】回答。
-                    2. **名詞解釋權限**：如果客戶問的是「定義」(如：什麼是變額、什麼是實支實付)，而資料庫裡只有生硬的條款、沒有解釋名詞時，**請允許使用你的保險知識進行白話解釋**，但必須在最後補充：「詳細給付項目仍以各家保單條款為準」。
-                    3. **數據要誠實**：如果問的是「數字」(如：等待期幾天、賠多少錢)，**資料庫沒寫就說沒查到**，絕對不能用通用知識瞎掰數字。
-                    4. **自然的警示**：在回答的最後，像朋友一樣溫馨提醒可能的除外責任或風險，不要用「🚨 專家警示」這種標題。
+                    # ==========================================
+                    # 🔥 關鍵技術 2：擴大檢索與 Debug
+                    # ==========================================
+                    # Tab 1 需要更廣泛的搜尋 (k=10) 才能回答深入問題
+                    retriever_deep = vectorstore.as_retriever(search_kwargs={"k": 10})
+                    retrieved_docs = retriever_deep.invoke(search_query)
 
-                    【已知條款】：
+                    with st.expander("🕵️ [理賠視角] AI 參考的條款細節"):
+                        if not retrieved_docs:
+                            st.warning("⚠️ 查無相關條款，請嘗試更具體的關鍵字。")
+                        for i, doc in enumerate(retrieved_docs):
+                            source = doc.metadata.get('source', '未知')
+                            st.markdown(f"**📄 條款 {i+1} ({source})**")
+                            st.caption(doc.page_content[:200] + "...")
+                            st.divider()
+
+                    # ==========================================
+                    # 🔥 關鍵技術 3：深度推論 Prompt (Chain of Thought)
+                    # ==========================================
+                    deep_persona = """
+                    你是具備 20 年經驗的「資深保險理賠專員」。你的工作不是只有讀條款，而是要幫客戶「解釋條款背後的邏輯」與「理賠實務」。
+
+                    【已知條款資訊】：
                     {context}
+
+                    【對話歷史】：
+                    {history}
+
+                    【當前問題】：
+                    {question}
+
+                    【回答策略】：
+                    1. **定義解釋**：不要只說結果，要解釋專有名詞 (例如：什麼是「既往症」？什麼是「門診手術」？)。
+                    2. **條款引用**：回答時，請務必提到「根據條款第 X 條...」或是「依據條款說明...」。
+                    3. **除外責任**：資深專員會主動告知風險。請在回答最後，補充「什麼情況下**不**會理賠」(Exclusions)。
+                    4. **舉例說明**：如果是複雜概念，請舉一個簡單的例子 (例如：小明發生了...)。
+                    5. **誠實原則**：如果資料庫裡完全沒有這家公司的條款，請直接說「資料庫無此商品資訊」，不要瞎掰。
+
+                    請用台灣繁體中文，以專業、詳盡且有溫度的口吻回答：
                     """
 
-                    human_template = "{question}"
-
-                    prompt = ChatPromptTemplate.from_messages([
-                        ("system", system_template),
-                        ("human", human_template)
+                    deep_prompt = ChatPromptTemplate.from_messages([
+                        ("human", deep_persona)
                     ])
 
-                    # 準備 Context
-                    docs_text = "\n\n".join(f"文件: {d.metadata.get('source', '未知')}\n內容: {d.page_content}" for d in retrieved_docs)
-                    
+                    # 建立 Chain
+                    chain = (
+                        {
+                            "context": lambda x: format_docs(retrieved_docs),
+                            "history": lambda x: history_context,
+                            "question": lambda x: user_input
+                        }
+                        | deep_prompt
+                        | llm
+                        | StrOutputParser()
+                    )
+
                     # 生成回答
-                    chain = prompt | llm_advisor | StrOutputParser()
-                    response = chain.invoke({"context": docs_text, "question": user_input})
-                    
+                    response = chain.invoke(user_input)
                     st.markdown(response)
+                    
+                    # 存入紀錄
                     st.session_state.messages.append({"role": "assistant", "content": response})
 
                 except Exception as e:
